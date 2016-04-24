@@ -42,17 +42,21 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+
+import com.android.camera.CropImageIntentBuilder;
+
+
 public class ImagePickerModule extends ReactContextBaseJavaModule implements ActivityEventListener {
 
   static final int REQUEST_LAUNCH_IMAGE_CAPTURE = 1;
   static final int REQUEST_LAUNCH_IMAGE_LIBRARY = 2;
   static final int REQUEST_LAUNCH_VIDEO_LIBRARY = 3;
   static final int REQUEST_LAUNCH_VIDEO_CAPTURE = 4;
+  static final int REQUEST_CROP_PICTURE = 5;
 
   private final ReactApplicationContext mReactContext;
 
   private Uri mCameraCaptureURI;
-  private Uri mCropImagedUri;
   private Callback mCallback;
   private Boolean noData = false;
   private Boolean tmpImage;
@@ -210,12 +214,6 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
       File imageFile = createNewFile(true);
       mCameraCaptureURI = Uri.fromFile(imageFile);
       cameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, Uri.fromFile(imageFile));
-
-      if (allowEditing == true) {
-        cameraIntent.putExtra("crop", "true");
-        cameraIntent.putExtra("aspectX", aspectX);
-        cameraIntent.putExtra("aspectY", aspectY);
-      }
     }
 
     if (cameraIntent.resolveActivity(mReactContext.getPackageManager()) == null) {
@@ -260,17 +258,6 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
       requestCode = REQUEST_LAUNCH_IMAGE_LIBRARY;
       libraryIntent = new Intent(Intent.ACTION_PICK,
         android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
-
-      mCropImagedUri = null;
-      if (allowEditing == true) {
-        // create a file to save the croped image
-        File imageFile = createNewFile(true);
-        mCropImagedUri = Uri.fromFile(imageFile);
-        libraryIntent.putExtra(MediaStore.EXTRA_OUTPUT, mCropImagedUri);
-        libraryIntent.putExtra("crop", "true");
-        libraryIntent.putExtra("aspectX", aspectX);
-        libraryIntent.putExtra("aspectY", aspectY);
-      }
     }
 
     if (libraryIntent.resolveActivity(mReactContext.getPackageManager()) == null) {
@@ -295,9 +282,16 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
   @Override
   public void onActivityResult(final int requestCode, final int resultCode, final Intent data) {
     //robustness code
-    if (mCallback == null || (mCameraCaptureURI == null && requestCode == REQUEST_LAUNCH_IMAGE_CAPTURE)
-            || (requestCode != REQUEST_LAUNCH_IMAGE_CAPTURE && requestCode != REQUEST_LAUNCH_IMAGE_LIBRARY
-            && requestCode != REQUEST_LAUNCH_VIDEO_LIBRARY && requestCode != REQUEST_LAUNCH_VIDEO_CAPTURE)) {
+    if (
+            mCallback == null ||
+            (mCameraCaptureURI == null && requestCode == REQUEST_LAUNCH_IMAGE_CAPTURE) ||
+            (
+             requestCode != REQUEST_LAUNCH_IMAGE_CAPTURE &&
+             requestCode != REQUEST_LAUNCH_IMAGE_LIBRARY &&
+             requestCode != REQUEST_LAUNCH_VIDEO_LIBRARY &&
+             requestCode != REQUEST_LAUNCH_VIDEO_CAPTURE &&
+             requestCode != REQUEST_CROP_PICTURE
+       )) {
       return;
     }
 
@@ -310,32 +304,23 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
       return;
     }
 
+    if (
+            requestCode == REQUEST_LAUNCH_VIDEO_LIBRARY ||
+            requestCode == REQUEST_LAUNCH_VIDEO_CAPTURE
+       ) {
+        response.putString("uri", data.getData().toString());
+        mCallback.invoke(response);
+       }
+
+
     Uri uri;
     switch (requestCode) {
       case REQUEST_LAUNCH_IMAGE_CAPTURE:
         uri = mCameraCaptureURI;
         break;
       case REQUEST_LAUNCH_IMAGE_LIBRARY:
-        if (mCropImagedUri != null) {
-          uri = mCropImagedUri;
-
-          // we check if we get the uri in response if we get it the crop failed so mCropImagedUri point to
-          // an empty file
-          Uri uriTmp = data.getData();
-          if (uriTmp != null)
-            uri = uriTmp;
-        } else {
-          uri = data.getData();
-        }
+        uri = data.getData();
         break;
-      case REQUEST_LAUNCH_VIDEO_LIBRARY:
-        response.putString("uri", data.getData().toString());
-        mCallback.invoke(response);
-        return;
-      case REQUEST_LAUNCH_VIDEO_CAPTURE:
-        response.putString("uri", data.getData().toString());
-        mCallback.invoke(response);
-        return;
       default:
         uri = null;
     }
@@ -367,11 +352,22 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
       }
     }
 
+    if (allowEditing && requestCode != REQUEST_CROP_PICTURE) {
+        CropImageIntentBuilder cropImage = new CropImageIntentBuilder(200, 200, uri);
+        cropImage.setOutlineColor(0xFF03A9F4);
+        cropImage.setSourceImage(data.getData());
+
+        Activity currentActivity = getCurrentActivity();
+        currentActivity.startActivityForResult(cropImage.getIntent(currentActivity), REQUEST_CROP_PICTURE);
+    }
+
+
     int CurrentAngle = 0;
     try {
+      boolean isVertical = true;
+
       ExifInterface exif = new ExifInterface(realPath);
       int orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
-      boolean isVertical = true;
       switch (orientation) {
         case ExifInterface.ORIENTATION_ROTATE_270:
           isVertical = false;

@@ -40,5 +40,6 @@ repositories {
 }
 
 dependencies {
+    compile project(':CropImage')
     compile 'com.facebook.react:react-native:0.20.+'
 }
